@@ -82,7 +82,58 @@ class TSPSolver:
 	'''
 
 	def greedy( self,time_allowance=60.0 ):
-		pass
+		results = {}
+		cities = self._scenario.getCities()
+		ncities = len(cities)
+		foundTour = False
+		start_time = time.time()
+		count = 0
+		minRouteCost = np.inf
+		answerExists = False
+
+		for city in cities:
+			foundTour = False
+			failed = False
+			route = []
+			route.append(city)
+			last = city
+			while not foundTour and not failed:
+				minCost = np.inf
+				for i in range(ncities):
+					if cities[i] in route:
+						pass
+					else:
+						if last.costTo(cities[i]) < minCost:
+							minCost = last.costTo(cities[i])
+							minCity = cities[i]
+
+				if(minCost == np.inf):
+					failed = True
+					break
+
+				last = minCity
+				route.append(minCity)
+
+				if len(route) == ncities:
+					bssf = TSPSolution(route)
+					count += 1
+					if bssf.cost < np.inf:
+						foundTour = True
+						answerExists = True
+						if bssf.cost < minRouteCost:
+							minRouteCost = bssf.cost
+							minRoute = route
+
+		bssf = TSPSolution(minRoute)
+		end_time = time.time()
+		results['cost'] = bssf.cost if answerExists else math.inf
+		results['time'] = end_time - start_time
+		results['count'] = count
+		results['soln'] = bssf
+		results['max'] = None
+		results['total'] = None
+		results['pruned'] = None
+		return results
 	
 	
 	

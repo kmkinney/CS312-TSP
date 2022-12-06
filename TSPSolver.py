@@ -1,14 +1,13 @@
 #!/usr/bin/python3
 
 from which_pyqt import PYQT_VER
-if PYQT_VER == 'PYQT5':
-	from PyQt5.QtCore import QLineF, QPointF
-elif PYQT_VER == 'PYQT4':
-	from PyQt4.QtCore import QLineF, QPointF
+
+if PYQT_VER == "PYQT5":
+  from PyQt5.QtCore import QLineF, QPointF
+elif PYQT_VER == "PYQT4":
+  from PyQt4.QtCore import QLineF, QPointF
 else:
-	raise Exception('Unsupported Version of PyQt: {}'.format(PYQT_VER))
-
-
+  raise Exception("Unsupported Version of PyQt: {}".format(PYQT_VER))
 
 
 import time
@@ -17,152 +16,230 @@ from TSPClasses import *
 import heapq
 import itertools
 
+# Solution to the minimal matching problem
+from hungarian import hungarian
+
+
+def get_cycles(match):
+  N = len(match)
+  cycles = []
+  used = set()
+  for i in range(N):
+    if i not in used:
+      used.add(i)
+      c = [i]
+      p = match[i]
+      while p != i:
+        used.add(p)
+        c.append(p)
+        p = match[p]
+      cycles.append(c)
+  cycles.sort(key=len, reverse=True)
+  return cycles
+
+
+def merge_cycles(adj, match, cs):
+  c1 = cs[0]
+  c2 = cs[1]
+  next = lambda i: match[i]
+  mcost = (
+    lambda i, j: adj[i][match[j]]
+    + adj[j][match[i]]
+    - adj[i][match[i]]
+    - adj[j][match[j]]
+  )
+
+  min_cost = mcost(c1[0], c2[0])
+  min_swap = (c1[0], c2[0])
+  for i in c1:
+    for j in c2:
+      c = mcost(i, j)
+      if c < min_cost:
+        min_cost = c
+        min_swap = (i, j)
+  # print(f'{min_cost=}')
+  i, j = min_swap
+  # print(f'{min_swap=}')
+  ni = next(i)
+  nj = next(j)
+  match[i] = nj
+  match[j] = ni
+  # print(f'{match=}')
+  return match
+
+
+def get_sol(adj, match):
+  path = [0]
+  last = 0
+  N = len(adj)
+  for i in range(N - 1):
+    next = match[last]
+    path.append(next)
+    last = next
+  return path
 
 
 class TSPSolver:
-	def __init__( self, gui_view ):
-		self._scenario = None
+  def __init__(self, gui_view):
+    self._scenario = None
 
-	def setupWithScenario( self, scenario ):
-		self._scenario = scenario
+  def setupWithScenario(self, scenario):
+    self._scenario = scenario
 
+  """ <summary>
+    This is the entry point for the default solver
+    which just finds a valid random tour.  Note this could be used to find your
+    initial BSSF.
+    </summary>
+    <returns>results dictionary for GUI that contains three ints: cost of solution, 
+    time spent to find solution, number of permutations tried during search, the 
+    solution found, and three null values for fields not used for this 
+    algorithm</returns> 
+  """
 
-	''' <summary>
-		This is the entry point for the default solver
-		which just finds a valid random tour.  Note this could be used to find your
-		initial BSSF.
-		</summary>
-		<returns>results dictionary for GUI that contains three ints: cost of solution, 
-		time spent to find solution, number of permutations tried during search, the 
-		solution found, and three null values for fields not used for this 
-		algorithm</returns> 
-	'''
-	
-	def defaultRandomTour( self, time_allowance=60.0 ):
-		results = {}
-		cities = self._scenario.getCities()
-		ncities = len(cities)
-		foundTour = False
-		count = 0
-		bssf = None
-		start_time = time.time()
-		while not foundTour and time.time()-start_time < time_allowance:
-			# create a random permutation
-			perm = np.random.permutation( ncities )
-			route = []
-			# Now build the route using the random permutation
-			for i in range( ncities ):
-				route.append( cities[ perm[i] ] )
-			bssf = TSPSolution(route)
-			count += 1
-			if bssf.cost < np.inf:
-				# Found a valid route
-				foundTour = True
-		end_time = time.time()
-		results['cost'] = bssf.cost if foundTour else math.inf
-		results['time'] = end_time - start_time
-		results['count'] = count
-		results['soln'] = bssf
-		results['max'] = None
-		results['total'] = None
-		results['pruned'] = None
-		return results
+  def defaultRandomTour(self, time_allowance=60.0):
+    results = {}
+    cities = self._scenario.getCities()
+    ncities = len(cities)
+    foundTour = False
+    count = 0
+    bssf = None
+    start_time = time.time()
+    while not foundTour and time.time() - start_time < time_allowance:
+      # create a random permutation
+      perm = np.random.permutation(ncities)
+      route = []
+      # Now build the route using the random permutation
+      for i in range(ncities):
+        route.append(cities[perm[i]])
+      bssf = TSPSolution(route)
+      count += 1
+      if bssf.cost < np.inf:
+        # Found a valid route
+        foundTour = True
+    end_time = time.time()
+    results["cost"] = bssf.cost if foundTour else math.inf
+    results["time"] = end_time - start_time
+    results["count"] = count
+    results["soln"] = bssf
+    results["max"] = None
+    results["total"] = None
+    results["pruned"] = None
+    return results
 
+  """ <summary>
+    This is the entry point for the greedy solver, which you must implement for 
+    the group project (but it is probably a good idea to just do it for the branch-and
+    bound project as a way to get your feet wet).  Note this could be used to find your
+    initial BSSF.
+    </summary>
+    <returns>results dictionary for GUI that contains three ints: cost of best solution, 
+    time spent to find best solution, total number of solutions found, the best
+    solution found, and three null values for fields not used for this 
+    algorithm</returns> 
+  """
 
-	''' <summary>
-		This is the entry point for the greedy solver, which you must implement for 
-		the group project (but it is probably a good idea to just do it for the branch-and
-		bound project as a way to get your feet wet).  Note this could be used to find your
-		initial BSSF.
-		</summary>
-		<returns>results dictionary for GUI that contains three ints: cost of best solution, 
-		time spent to find best solution, total number of solutions found, the best
-		solution found, and three null values for fields not used for this 
-		algorithm</returns> 
-	'''
+  def greedy(self, time_allowance=60.0):
+    results = {}
+    cities = self._scenario.getCities()
+    ncities = len(cities)
+    foundTour = False
+    start_time = time.time()
+    count = 0
+    minRouteCost = np.inf
+    answerExists = False
 
-	def greedy( self,time_allowance=60.0 ):
-		results = {}
-		cities = self._scenario.getCities()
-		ncities = len(cities)
-		foundTour = False
-		start_time = time.time()
-		count = 0
-		minRouteCost = np.inf
-		answerExists = False
+    for city in cities:
+      foundTour = False
+      failed = False
+      route = []
+      route.append(city)
+      last = city
+      while not foundTour and not failed:
+        minCost = np.inf
+        for i in range(ncities):
+          if cities[i] in route:
+            pass
+          else:
+            if last.costTo(cities[i]) < minCost:
+              minCost = last.costTo(cities[i])
+              minCity = cities[i]
 
-		for city in cities:
-			foundTour = False
-			failed = False
-			route = []
-			route.append(city)
-			last = city
-			while not foundTour and not failed:
-				minCost = np.inf
-				for i in range(ncities):
-					if cities[i] in route:
-						pass
-					else:
-						if last.costTo(cities[i]) < minCost:
-							minCost = last.costTo(cities[i])
-							minCity = cities[i]
+        if minCost == np.inf:
+          failed = True
+          break
 
-				if(minCost == np.inf):
-					failed = True
-					break
+        last = minCity
+        route.append(minCity)
 
-				last = minCity
-				route.append(minCity)
+        if len(route) == ncities:
+          bssf = TSPSolution(route)
+          count += 1
+          if bssf.cost < np.inf:
+            foundTour = True
+            answerExists = True
+            if bssf.cost < minRouteCost:
+              minRouteCost = bssf.cost
+              minRoute = route
 
-				if len(route) == ncities:
-					bssf = TSPSolution(route)
-					count += 1
-					if bssf.cost < np.inf:
-						foundTour = True
-						answerExists = True
-						if bssf.cost < minRouteCost:
-							minRouteCost = bssf.cost
-							minRoute = route
+    bssf = TSPSolution(minRoute)
+    end_time = time.time()
+    results["cost"] = bssf.cost if answerExists else math.inf
+    results["time"] = end_time - start_time
+    results["count"] = count
+    results["soln"] = bssf
+    results["max"] = None
+    results["total"] = None
+    results["pruned"] = None
+    return results
 
-		bssf = TSPSolution(minRoute)
-		end_time = time.time()
-		results['cost'] = bssf.cost if answerExists else math.inf
-		results['time'] = end_time - start_time
-		results['count'] = count
-		results['soln'] = bssf
-		results['max'] = None
-		results['total'] = None
-		results['pruned'] = None
-		return results
-	
-	
-	
-	''' <summary>
-		This is the entry point for the branch-and-bound algorithm that you will implement
-		</summary>
-		<returns>results dictionary for GUI that contains three ints: cost of best solution, 
-		time spent to find best solution, total number solutions found during search (does
-		not include the initial BSSF), the best solution found, and three more ints: 
-		max queue size, total number of states created, and number of pruned states.</returns> 
-	'''
-		
-	def branchAndBound( self, time_allowance=60.0 ):
-		pass
+  """ <summary>
+    This is the entry point for the branch-and-bound algorithm that you will implement
+    </summary>
+    <returns>results dictionary for GUI that contains three ints: cost of best solution, 
+    time spent to find best solution, total number solutions found during search (does
+    not include the initial BSSF), the best solution found, and three more ints: 
+    max queue size, total number of states created, and number of pruned states.</returns> 
+  """
 
+  def branchAndBound(self, time_allowance=60.0):
+    pass
 
+  def fancy(self, time_allowance=60.0):
+    results = {}
+    cities = self._scenario.getCities()
+    ncities = len(cities)
+    start_time = time.time()
 
-	''' <summary>
-		This is the entry point for the algorithm you'll write for your group project.
-		</summary>
-		<returns>results dictionary for GUI that contains three ints: cost of best solution, 
-		time spent to find best solution, total number of solutions found during search, the 
-		best solution found.  You may use the other three field however you like.
-		algorithm</returns> 
-	'''
-		
-	def fancy( self,time_allowance=60.0 ):
-		pass
-		
+    # initialize the reduced cost matrix and priority queue
+    costBetween = lambda i, j: np.inf if i == j else cities[i].costTo(cities[j])
+    adj = [[costBetween(j, i) for i in range(ncities)] for j in range(ncities)]
+    # Compute the minimal matching for the graph
+    mcost, match = hungarian(adj)
+    # Find the distinct cycles in the match permutation
+    cycles = get_cycles(match)
+    # print(cycles)
+    # print(mcost)
+    count = 0
+    # While the permutation isn't a full cycle
+    while len(cycles) > 1:
+      count += 1
+      # print(cycles)
+      merged_match = merge_cycles(adj, match, cycles)
+      match = merged_match
+      cycles = get_cycles(merged_match)
+    path = get_sol(adj, match)
+    # print(path)
+    city_path = [cities[i] for i in path]
+    sol = TSPSolution(city_path)
+    end_time = time.time()
 
-
-
+    results["cost"] = sol.cost
+    results["time"] = end_time - start_time
+    results["soln"] = sol
+    results["count"] = count
+    results["max"] = None
+    results["total"] = None
+    results["pruned"] = None
+    print(results)
+    return results

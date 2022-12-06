@@ -13,6 +13,7 @@ else:
 import time
 import numpy as np
 from TSPClasses import *
+from StateNode import *
 import heapq
 import itertools
 
@@ -203,7 +204,57 @@ class TSPSolver:
   """
 
   def branchAndBound(self, time_allowance=60.0):
-    pass
+    greedy = self.greedy(time_allowance)
+    bssf = greedy["soln"]  # {costOfBestSolution, timeSpent, theBestSolutionFound}
+    numCompletePaths = 0
+    nCities = len(self._scenario.getCities())
+    rootNode = StateNode(None, None, None, None, self._scenario, True)
+    startTime = time.time()
+    heap = []  # will contain StateNodes. I will need to find some way to get a specific value as the value to be minimized.
+    heapq.heapify(heap)
+    maxQueueSize = 0
+    numPruned = 0
+    totalCreated = 0
+    heapq.heappush(heap, (0, rootNode))
+
+    while (time.time() - startTime < time_allowance):
+      if len(heap) == 0:
+        break
+      nodeBeingExplored: StateNode = heapq.heappop(heap)[1]
+
+      if nodeBeingExplored.lowerBound > bssf.cost:
+        # If this node is not viable, skip it.
+        numPruned += 1
+
+      if nodeBeingExplored.getDepth() == nCities:  # Then it is a potential end.
+        newBSSF = TSPSolution(nodeBeingExplored.path)  # nodeBeingExplored.lowerBound
+        if newBSSF.cost < bssf.cost:
+          bssf = newBSSF
+          numCompletePaths += 1
+        else:
+          numPruned += 1
+      children = nodeBeingExplored.makeChildren(self._scenario)
+      totalCreated += len(children)
+      for child in children:
+        if child.lowerBound <= bssf.cost:
+          priority = (child.lowerBound / nodeBeingExplored.getDepth())
+          heapq.heappush(heap, (priority, child))
+          if len(heap) > maxQueueSize:
+            maxQueueSize = len(heap)
+        else:
+          numPruned += 1
+
+    endTime = time.time()
+    numPruned += len(heap)
+    results = {}
+    results['cost'] = bssf.cost
+    results['time'] = endTime - startTime
+    results['count'] = numCompletePaths
+    results['soln'] = bssf
+    results['max'] = maxQueueSize
+    results['total'] = totalCreated
+    results['pruned'] = numPruned
+    return results
 
   def fancy(self, time_allowance=60.0):
     results = {}

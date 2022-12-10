@@ -144,54 +144,42 @@ class TSPSolver:
     results = {}
     cities = self._scenario.getCities()
     ncities = len(cities)
-    foundTour = False
-    start_time = time.time()
     count = 0
-    minRouteCost = np.inf
-    answerExists = False
-
-    for city in cities:
-      foundTour = False
-      failed = False
-      route = []
-      route.append(city)
-      last = city
-      while not foundTour and not failed:
-        minCost = np.inf
-        for i in range(ncities):
-          if cities[i] in route:
-            pass
-          else:
-            if last.costTo(cities[i]) < minCost:
-              minCost = last.costTo(cities[i])
-              minCity = cities[i]
-
-        if minCost == np.inf:
-          failed = True
-          break
-
-        last = minCity
-        route.append(minCity)
-
-        if len(route) == ncities:
-          bssf = TSPSolution(route)
-          count += 1
-          if bssf.cost < np.inf:
-            foundTour = True
-            answerExists = True
-            if bssf.cost < minRouteCost:
-              minRouteCost = bssf.cost
-              minRoute = route
-
-    bssf = TSPSolution(minRoute)
+    bssf = TSPSolution(cities)
+    best_cost = bssf.cost
+    best_route = list(range(ncities))
+    costBetween = lambda i,j:np.inf if i==j else cities[i].costTo(cities[j])
+    graph = [[costBetween(j,i) for i in range(ncities)] for j in range(ncities)]
+    start_city = 0
+    start_time = time.time()
+    while start_city < ncities:
+      cur_city = start_city
+      other_cities = set(range(ncities))
+      route = [cur_city]
+      cost = 0
+      for _ in range(ncities-1):
+        other_cities.remove(cur_city)
+        next = min(other_cities, key=lambda o: graph[cur_city][o])
+        route.append(next)
+        cost += graph[cur_city][next]
+        cur_city = next
+      cost += graph[cur_city][start_city]
+      if cost < best_cost:
+        best_cost = cost
+        best_route = route
+      count += 1
+      start_city += 1
+    bssf = TSPSolution([cities[i] for i in best_route])
     end_time = time.time()
-    results["cost"] = bssf.cost if answerExists else math.inf
+    results["cost"] = bssf.cost
     results["time"] = end_time - start_time
     results["count"] = count
     results["soln"] = bssf
     results["max"] = None
     results["total"] = None
     results["pruned"] = None
+    print(results['time'])
+    print(results['cost'])
     return results
 
   """ <summary>
